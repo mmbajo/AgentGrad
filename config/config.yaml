@@ -7,6 +7,11 @@ defaults:
 
 seed: 42
 device: ${device}
+
+# Logging configuration
+tensorboard:
+  enabled: false  # Whether to use tensorboard logging
+
 wandb:
   project: rl
   entity: null  # Set your wandb entity here

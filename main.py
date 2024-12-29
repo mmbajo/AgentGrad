@@ -6,10 +6,17 @@ import wandb
 from pathlib import Path
 from loguru import logger
 import sys
+import numpy as np
+import random
+import os
+from dotenv import load_dotenv
 from datetime import datetime
 
 from agents.ddpg.agent import DDPGAgent
 
+load_dotenv()
+os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")
+wandb.login(key=os.getenv("WANDB_API_KEY"))
 
 def setup_logger(log_dir: Path) -> None:
     """Setup loguru logger with file and console outputs."""
@@ -53,6 +60,7 @@ def main(cfg: DictConfig) -> None:
     if cfg.wandb.mode != "disabled":
         wandb.init(
             project=cfg.wandb.project,
+            name=cfg.wandb.name,
             entity=cfg.wandb.entity,
             config=dict(cfg),
             mode=cfg.wandb.mode,
@@ -60,14 +68,18 @@ def main(cfg: DictConfig) -> None:
         )
         logger.info("Initialized W&B logging")
 
+    # Create environment
+    env = gym.make(cfg.env.name)
+    logger.info(f"Created environment: {cfg.env.name}")
+    
     # Set random seed
     torch.manual_seed(cfg.seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed(cfg.seed)
-
-    # Create environment
-    env = gym.make(cfg.env.name)
-    logger.info(f"Created environment: {cfg.env.name}")
+    np.random.seed(cfg.seed)
+    random.seed(cfg.seed)
+    env.reset(seed=cfg.seed)
+    logger.info(f"Set random seed to {cfg.seed}")
 
     # Update config with environment info
     OmegaConf.set_struct(cfg, False)  # Allow config modification
@@ -139,9 +151,9 @@ def main(cfg: DictConfig) -> None:
         if cfg.wandb.mode != "disabled":
             wandb.log(metrics)
 
-        if episode_reward >= cfg.env.max_episode_reward:
-            logger.success(f"Solved in {episode} episodes!")
-            break
+        # if episode_reward >= cfg.env.max_episode_reward:
+        #     logger.success(f"Solved in {episode} episodes!")
+        #     break
 
     if cfg.wandb.mode != "disabled":
         wandb.finish()

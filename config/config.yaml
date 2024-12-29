@@ -1,0 +1,20 @@
+defaults:
+  - _self_
+  - env: lunar_lander
+  - agent: ddpg
+  - override hydra/hydra_logging: disabled
+  - override hydra/job_logging: disabled
+
+seed: 42
+device: ${device}
+wandb:
+  project: agentgrad
+  entity: null  # Set your wandb entity here
+  mode: disabled  # Set to disabled to turn off logging
+
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra.job.num} 

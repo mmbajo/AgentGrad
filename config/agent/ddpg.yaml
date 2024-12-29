@@ -1,0 +1,15 @@
+# Model parameters
+state_dim: ???  # Set from environment
+action_dim: ???  # Set from environment
+action_high: ???  # Set from environment
+action_low: ???  # Set from environment
+hidden_dim: 256
+
+# Training hyperparameters
+gamma: 0.99
+batch_size: 256
+buffer_size: 1000000
+actor_lr: 3e-4
+critic_lr: 3e-4
+tau: 0.005
+exploration_noise: 0.1 

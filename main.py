@@ -5,42 +5,17 @@ import torch
 import wandb
 from pathlib import Path
 from loguru import logger
-import sys
 import numpy as np
 import random
 import os
 from dotenv import load_dotenv
-from datetime import datetime
 
 from agents.torch_ddpg.agent import DDPGAgent
+from utils.logger import setup_logger
 
 load_dotenv()
 os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")
 wandb.login(key=os.getenv("WANDB_API_KEY"))
-
-def setup_logger(log_dir: Path) -> None:
-    """Setup loguru logger with file and console outputs."""
-    # Remove default handler
-    logger.remove()
-
-    # Add console handler with color
-    logger.add(
-        sys.stdout,
-        colorize=True,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-        level="INFO",
-    )
-
-    # Add file handler
-    log_file = log_dir / f"train_{datetime.now():%Y%m%d_%H%M%S}.log"
-    logger.add(
-        str(log_file),
-        rotation="100 MB",
-        retention="10 days",
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
-        level="DEBUG",
-    )
-
 
 @hydra.main(version_base=None, config_path="config", config_name="config")
 def main(cfg: DictConfig) -> None:

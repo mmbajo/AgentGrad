@@ -12,7 +12,7 @@ import os
 from dotenv import load_dotenv
 from datetime import datetime
 
-from agents.ddpg.agent import DDPGAgent
+from agents.torch_ddpg.agent import DDPGAgent
 
 load_dotenv()
 os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")

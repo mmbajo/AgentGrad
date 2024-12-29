@@ -11,4 +11,12 @@ dependencies = [
     "loguru>=0.7.3",
     "swig>=4.3.0",
     "torch>=2.5.1",
+    "wandb>=0.19.1",
+]
+
+[dependency-groups]
+dev = [
+    "black>=24.10.0",
+    "mypy>=1.13.0",
+    "ruff>=0.8.3",
 ]

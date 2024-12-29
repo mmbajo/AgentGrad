@@ -3,7 +3,6 @@ from typing import Dict, List, Optional, Any
 import numpy as np
 import json
 from pathlib import Path
-from torch.utils.tensorboard import SummaryWriter
 from tabulate import tabulate
 import wandb
 
@@ -18,7 +17,7 @@ class BaseMetricAccumulator(ABC):
     
     def __init__(
         self,
-        writer: Optional[SummaryWriter] = None,
+        writer: Optional[Any] = None,
         use_wandb: bool = True,
     ):
         """Initialize the metric accumulator.
@@ -162,10 +161,10 @@ class BaseMetricAccumulator(ABC):
         pass
     
     def save(self, path: Path, is_training: bool = True) -> None:
-        """Save metrics to files.
+        """Save metrics to file.
         
         Args:
-            path: Directory to save metrics
+            path: Path to save metrics file
             is_training: Whether these are training metrics
         """
         metrics = {
@@ -178,12 +177,9 @@ class BaseMetricAccumulator(ABC):
         # Add environment-specific metrics
         metrics.update(self._get_env_metrics_dict())
         
-        _t = "training" if is_training else "eval"
-        with open(path / f"{_t}_metrics.json", "w") as f:
+        # Save metrics
+        with open(path, "w") as f:
             json.dump(metrics, f, indent=4)
-        
-        np.save(path / f"{_t}_states.npy", np.array(self._states))
-        np.save(path / f"{_t}_actions.npy", np.array(self._actions))
     
     @abstractmethod
     def _get_env_metrics_dict(self) -> Dict[str, List[Any]]:
@@ -205,10 +201,14 @@ class BaseMetricAccumulator(ABC):
         return summary
     
     def save_summary(self, path: Path, is_training: bool = True) -> None:
-        """Save summary statistics to file."""
+        """Save summary statistics to file.
+        
+        Args:
+            path: Path to save summary file
+            is_training: Whether these are training metrics
+        """
         summary = self.summarize_metrics()
-        _t = "training" if is_training else "eval"
-        with open(path / f"{_t}_summary.json", "w") as f:
+        with open(path, "w") as f:
             json.dump(summary, f, indent=4)
     
     @classmethod
@@ -253,3 +253,22 @@ class BaseMetricAccumulator(ABC):
                 stralign="left",
             )
         ) 
+    
+    def clear_metrics(self) -> None:
+        """Clear all accumulated metrics to free memory."""
+        self._rewards.clear()
+        self._episode_length.clear()
+        self._actor_losses.clear()
+        self._critic_losses.clear()
+        self._states.clear()
+        self._actions.clear()
+        self._clear_env_metrics()
+    
+    @abstractmethod
+    def _clear_env_metrics(self) -> None:
+        """Clear environment-specific metrics.
+        
+        This method should be implemented by subclasses to clear
+        any additional metrics specific to their environment.
+        """
+        pass 

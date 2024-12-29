@@ -9,11 +9,11 @@ import numpy as np
 import random
 import os
 from dotenv import load_dotenv
-from torch.utils.tensorboard import SummaryWriter
 
 from agents.torch_ddpg.agent import DDPGAgent
 from utils.logger import setup_logger
 from utils.metrics.factory import MetricsFactory
+from utils.save_manager import SaveManager
 
 load_dotenv()
 os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")
@@ -59,7 +59,11 @@ def main(cfg: DictConfig) -> None:
     logger.info(OmegaConf.to_yaml(cfg.agent))
 
     # Setup metrics
-    writer = SummaryWriter(log_dir=str(log_dir)) if cfg.tensorboard.enabled else None
+    if cfg.tensorboard.enabled:
+        from torch.utils.tensorboard import SummaryWriter
+        writer = SummaryWriter(log_dir=str(log_dir))
+    else:
+        writer = None
     metrics = MetricsFactory.create(
         env_id=cfg.env.name,
         writer=writer,
@@ -83,6 +87,13 @@ def main(cfg: DictConfig) -> None:
     cfg.agent.device = device
     agent = DDPGAgent(cfg.agent)
     logger.info("Created DDPG agent")
+
+    # Setup save manager
+    save_manager = SaveManager(
+        save_dir=log_dir,
+        metrics_freq=cfg.save.metrics_freq,
+        model_freq=cfg.save.model_freq,
+    )
 
     # Training loop
     total_steps = 0
@@ -134,18 +145,40 @@ def main(cfg: DictConfig) -> None:
             info=info,
         )
 
-        # Update best reward
+        # Update best reward and save best model
         if episode_reward > best_reward:
             best_reward = episode_reward
             logger.info(f"New best reward: {best_reward:.2f}")
+            save_manager.save_model(
+                agent=agent,
+                episode=episode,
+                reward=episode_reward,
+                is_best=True,
+            )
+
+        # Periodic saves
+        if save_manager.should_save_metrics(episode):
+            save_manager.save_metrics(metrics, episode)
+
+        if save_manager.should_save_model(episode):
+            save_manager.save_model(
+                agent=agent,
+                episode=episode,
+                reward=episode_reward,
+            )
 
         logger.info(
             f"Episode {episode}: Reward = {episode_reward:.2f}, Steps = {episode_steps}, Best = {best_reward:.2f}"
         )
 
-    # Save final metrics
-    metrics.save(log_dir)
-    metrics.save_summary(log_dir)
+    # Save final metrics and model
+    save_manager.save_metrics(metrics, episode)
+    save_manager.save_model(
+        agent=agent,
+        episode=episode,
+        reward=episode_reward,
+        is_final=True,
+    )
     logger.info("\nFinal metrics summary:")
     metrics.print_summary()
 

@@ -40,4 +40,8 @@ class MinimalMetrics(BaseMetricAccumulator):
     
     def _get_env_metrics_dict(self) -> Dict[str, List[Any]]:
         """Get dictionary of minimal metrics (none)."""
-        return {} 
+        return {}
+    
+    def _clear_env_metrics(self) -> None:
+        """Clear minimal metrics (none needed)."""
+        pass 

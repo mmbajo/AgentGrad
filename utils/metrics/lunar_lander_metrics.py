@@ -114,4 +114,14 @@ class LunarLanderMetrics(BaseMetricAccumulator):
             "tilt": self._tilt,
             "angular_velocity_magnitude": self._angular_velocity_magnitude,
             "success": self._success,
-        } 
+        }
+    
+    def _clear_env_metrics(self) -> None:
+        """Clear LunarLander-specific metrics."""
+        self._main_engine_fuel_used.clear()
+        self._left_right_engine_fuel_used.clear()
+        self._dist_from_goal.clear()
+        self._velocity_magnitude.clear()
+        self._tilt.clear()
+        self._angular_velocity_magnitude.clear()
+        self._success.clear() 

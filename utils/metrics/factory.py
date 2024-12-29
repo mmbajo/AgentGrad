@@ -1,5 +1,4 @@
-from typing import Optional, Type
-from torch.utils.tensorboard import SummaryWriter
+from typing import Optional, Type, Any
 from utils.metrics.base_metrics import BaseMetricAccumulator
 from utils.metrics.lunar_lander_metrics import LunarLanderMetrics
 from utils.metrics.minimal_metrics import MinimalMetrics
@@ -28,7 +27,7 @@ class MetricsFactory:
     def create(
         cls,
         env_id: str,
-        writer: Optional[SummaryWriter] = None,
+        writer: Optional[Any] = None,
         use_wandb: bool = True,
     ) -> BaseMetricAccumulator:
         """Create metrics accumulator for the specified environment.

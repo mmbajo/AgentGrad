@@ -7,10 +7,23 @@ defaults:
 
 seed: 42
 device: ${device}
+
+# Save configuration
+save:
+  metrics_freq: 200  # Save metrics every N episodes
+  model_freq: 200   # Save model checkpoints every N episodes
+  metrics_dir: "metrics"  # Directory for metric files
+  model_dir: "models"    # Directory for model checkpoints
+
+# Logging configuration
+tensorboard:
+  enabled: false  # Whether to use tensorboard logging
+
 wandb:
-  project: agentgrad
+  project: rl
   entity: null  # Set your wandb entity here
-  mode: disabled  # Set to disabled to turn off logging
+  mode: online  # Set to disabled to turn off logging
+  name: ${agent.name}_${env.name}_${seed}
 
 hydra:
   run:

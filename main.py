@@ -5,35 +5,19 @@ import torch
 import wandb
 from pathlib import Path
 from loguru import logger
-import sys
-from datetime import datetime
+import numpy as np
+import random
+import os
+from dotenv import load_dotenv
 
-from agents.ddpg.agent import DDPGAgent
+from agents.torch_ddpg.agent import DDPGAgent
+from utils.logger import setup_logger
+from utils.metrics.factory import MetricsFactory
+from utils.save_manager import SaveManager
 
-
-def setup_logger(log_dir: Path) -> None:
-    """Setup loguru logger with file and console outputs."""
-    # Remove default handler
-    logger.remove()
-
-    # Add console handler with color
-    logger.add(
-        sys.stdout,
-        colorize=True,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
-        level="INFO",
-    )
-
-    # Add file handler
-    log_file = log_dir / f"train_{datetime.now():%Y%m%d_%H%M%S}.log"
-    logger.add(
-        str(log_file),
-        rotation="100 MB",
-        retention="10 days",
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
-        level="DEBUG",
-    )
-
+load_dotenv()
+os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")
+wandb.login(key=os.getenv("WANDB_API_KEY"))
 
 @hydra.main(version_base=None, config_path="config", config_name="config")
 def main(cfg: DictConfig) -> None:
@@ -50,24 +34,18 @@ def main(cfg: DictConfig) -> None:
     setup_logger(log_dir)
     logger.info(f"Using device: {device}")
 
-    if cfg.wandb.mode != "disabled":
-        wandb.init(
-            project=cfg.wandb.project,
-            entity=cfg.wandb.entity,
-            config=dict(cfg),
-            mode=cfg.wandb.mode,
-            dir=str(log_dir),
-        )
-        logger.info("Initialized W&B logging")
-
+    # Create environment
+    env = gym.make(cfg.env.name)
+    logger.info(f"Created environment: {cfg.env.name}")
+    
     # Set random seed
     torch.manual_seed(cfg.seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed(cfg.seed)
-
-    # Create environment
-    env = gym.make(cfg.env.name)
-    logger.info(f"Created environment: {cfg.env.name}")
+    np.random.seed(cfg.seed)
+    random.seed(cfg.seed)
+    env.reset(seed=cfg.seed)
+    logger.info(f"Set random seed to {cfg.seed}")
 
     # Update config with environment info
     OmegaConf.set_struct(cfg, False)  # Allow config modification
@@ -80,10 +58,42 @@ def main(cfg: DictConfig) -> None:
     logger.info("\nAgent configuration:")
     logger.info(OmegaConf.to_yaml(cfg.agent))
 
-    # Create agent directly
+    # Setup metrics
+    if cfg.tensorboard.enabled:
+        from torch.utils.tensorboard import SummaryWriter
+        writer = SummaryWriter(log_dir=str(log_dir))
+    else:
+        writer = None
+    metrics = MetricsFactory.create(
+        env_id=cfg.env.name,
+        writer=writer,
+        use_wandb=cfg.wandb.mode != "disabled"
+    )
+    logger.info(f"Created metrics for environment: {cfg.env.name}")
+
+    # Initialize wandb if enabled
+    if cfg.wandb.mode != "disabled":
+        wandb.init(
+            project=cfg.wandb.project,
+            name=cfg.wandb.name,
+            entity=cfg.wandb.entity,
+            config=dict(cfg),
+            mode=cfg.wandb.mode,
+            dir=str(log_dir),
+        )
+        logger.info("Initialized W&B logging")
+
+    # Create agent
     cfg.agent.device = device
     agent = DDPGAgent(cfg.agent)
     logger.info("Created DDPG agent")
+
+    # Setup save manager
+    save_manager = SaveManager(
+        save_dir=log_dir,
+        metrics_freq=cfg.save.metrics_freq,
+        model_freq=cfg.save.model_freq,
+    )
 
     # Training loop
     total_steps = 0
@@ -95,6 +105,8 @@ def main(cfg: DictConfig) -> None:
         episode_reward = 0
         episode_steps = 0
         done = False
+        total_critic_loss = 0
+        total_actor_loss = 0
 
         while not done:
             episode_steps += 1
@@ -113,39 +125,68 @@ def main(cfg: DictConfig) -> None:
                 len(agent.replay_buffer) > cfg.agent.batch_size
                 and total_steps > cfg.env.max_steps
             ):
-                agent.train()
+                critic_loss, actor_loss = agent.train()
+                total_critic_loss += critic_loss
+                total_actor_loss += actor_loss
 
             state = next_state
 
             if truncated:
                 done = True
 
-        metrics = {
-            "episode": episode,
-            "reward": episode_reward,
-            "steps": episode_steps,
-            "total_steps": total_steps,
-        }
+        # Update metrics
+        metrics.push_back(
+            reward=episode_reward,
+            critic_loss=total_critic_loss,
+            actor_loss=total_actor_loss,
+            length=episode_steps,
+            action=action,
+            state=state,
+            info=info,
+        )
 
-        # Update best reward
+        # Update best reward and save best model
         if episode_reward > best_reward:
             best_reward = episode_reward
             logger.info(f"New best reward: {best_reward:.2f}")
+            save_manager.save_model(
+                agent=agent,
+                episode=episode,
+                reward=episode_reward,
+                is_best=True,
+            )
+
+        # Periodic saves
+        if save_manager.should_save_metrics(episode):
+            save_manager.save_metrics(metrics, episode)
+
+        if save_manager.should_save_model(episode):
+            save_manager.save_model(
+                agent=agent,
+                episode=episode,
+                reward=episode_reward,
+            )
 
         logger.info(
             f"Episode {episode}: Reward = {episode_reward:.2f}, Steps = {episode_steps}, Best = {best_reward:.2f}"
         )
 
-        if cfg.wandb.mode != "disabled":
-            wandb.log(metrics)
-
-        if episode_reward >= cfg.env.max_episode_reward:
-            logger.success(f"Solved in {episode} episodes!")
-            break
+    # Save final metrics and model
+    save_manager.save_metrics(metrics, episode)
+    save_manager.save_model(
+        agent=agent,
+        episode=episode,
+        reward=episode_reward,
+        is_final=True,
+    )
+    logger.info("\nFinal metrics summary:")
+    metrics.print_summary()
 
     if cfg.wandb.mode != "disabled":
         wandb.finish()
 
+    if writer:
+        writer.close()
     logger.info("Training completed!")
 
 

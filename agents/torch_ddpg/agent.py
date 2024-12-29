@@ -4,8 +4,8 @@ import torch.nn as nn
 import numpy as np
 from numpy.typing import NDArray
 
-from agents.ddpg.actor import Actor
-from agents.ddpg.critic import Critic
+from agents.torch_ddpg.actor import Actor
+from agents.torch_ddpg.critic import Critic
 from agents.utils.replay_buffer import ReplayBuffer
 
 
@@ -72,7 +72,7 @@ class DDPGAgent:
             action + noise, self.config.action_low, self.config.action_high
         )  # Actions are typically normalized to [-1, 1]
 
-    def train(self) -> None:
+    def train(self) -> Tuple[float, float]:
         state, action, reward, next_state, done = self.replay_buffer.sample(
             self.config["batch_size"]
         )
@@ -91,3 +91,32 @@ class DDPGAgent:
 
         # Update target networks
         self._update_target_networks()
+        return critic_loss.item(), actor_loss.item()
+
+    def get_save_dict(self) -> Dict[str, Any]:
+        """Get complete state dict for saving.
+        
+        Returns:
+            Dictionary containing all states needed to restore the agent
+        """
+        return {
+            "actor_model_state": self.actor.actor_model.state_dict(),
+            "actor_target_model_state": self.actor.actor_target_model.state_dict(),
+            "actor_optimizer_state": self.actor.actor_optimizer.state_dict(),
+            "critic_model_state": self.critic.critic_model.state_dict(),
+            "critic_target_model_state": self.critic.critic_target_model.state_dict(),
+            "critic_optimizer_state": self.critic.critic_optimizer.state_dict(),
+        }
+    
+    def load_save_dict(self, save_dict: Dict[str, Any]) -> None:
+        """Load complete state from saved dictionary.
+        
+        Args:
+            save_dict: Dictionary containing saved states
+        """
+        self.actor.actor_model.load_state_dict(save_dict["actor_model_state"])
+        self.actor.actor_target_model.load_state_dict(save_dict["actor_target_model_state"])
+        self.actor.actor_optimizer.load_state_dict(save_dict["actor_optimizer_state"])
+        self.critic.critic_model.load_state_dict(save_dict["critic_model_state"])
+        self.critic.critic_target_model.load_state_dict(save_dict["critic_target_model_state"])
+        self.critic.critic_optimizer.load_state_dict(save_dict["critic_optimizer_state"])

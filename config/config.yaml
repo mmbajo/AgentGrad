@@ -8,9 +8,10 @@ defaults:
 seed: 42
 device: ${device}
 wandb:
-  project: agentgrad
+  project: rl
   entity: null  # Set your wandb entity here
-  mode: disabled  # Set to disabled to turn off logging
+  mode: online  # Set to disabled to turn off logging
+  name: ${agent.name}_${env.name}_${seed}
 
 hydra:
   run:

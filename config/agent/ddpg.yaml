@@ -1,9 +1,12 @@
+# Agent name
+name: ddpg
+
 # Model parameters
 state_dim: ???  # Set from environment
 action_dim: ???  # Set from environment
 action_high: ???  # Set from environment
 action_low: ???  # Set from environment
-hidden_dim: 256
+hidden_dim: 512
 
 # Training hyperparameters
 gamma: 0.99

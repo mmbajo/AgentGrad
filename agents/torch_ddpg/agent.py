@@ -72,7 +72,7 @@ class DDPGAgent:
             action + noise, self.config.action_low, self.config.action_high
         )  # Actions are typically normalized to [-1, 1]
 
-    def train(self) -> None:
+    def train(self) -> Tuple[float, float]:
         state, action, reward, next_state, done = self.replay_buffer.sample(
             self.config["batch_size"]
         )
@@ -91,3 +91,4 @@ class DDPGAgent:
 
         # Update target networks
         self._update_target_networks()
+        return critic_loss.item(), actor_loss.item()

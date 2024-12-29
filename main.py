@@ -9,9 +9,11 @@ import numpy as np
 import random
 import os
 from dotenv import load_dotenv
+from torch.utils.tensorboard import SummaryWriter
 
 from agents.torch_ddpg.agent import DDPGAgent
 from utils.logger import setup_logger
+from utils.metrics.factory import MetricsFactory
 
 load_dotenv()
 os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")
@@ -31,17 +33,6 @@ def main(cfg: DictConfig) -> None:
     log_dir = Path(hydra.core.hydra_config.HydraConfig.get().runtime.output_dir)
     setup_logger(log_dir)
     logger.info(f"Using device: {device}")
-
-    if cfg.wandb.mode != "disabled":
-        wandb.init(
-            project=cfg.wandb.project,
-            name=cfg.wandb.name,
-            entity=cfg.wandb.entity,
-            config=dict(cfg),
-            mode=cfg.wandb.mode,
-            dir=str(log_dir),
-        )
-        logger.info("Initialized W&B logging")
 
     # Create environment
     env = gym.make(cfg.env.name)
@@ -67,7 +58,28 @@ def main(cfg: DictConfig) -> None:
     logger.info("\nAgent configuration:")
     logger.info(OmegaConf.to_yaml(cfg.agent))
 
-    # Create agent directly
+    # Setup metrics
+    writer = SummaryWriter(log_dir=str(log_dir)) if cfg.tensorboard.enabled else None
+    metrics = MetricsFactory.create(
+        env_id=cfg.env.name,
+        writer=writer,
+        use_wandb=cfg.wandb.mode != "disabled"
+    )
+    logger.info(f"Created metrics for environment: {cfg.env.name}")
+
+    # Initialize wandb if enabled
+    if cfg.wandb.mode != "disabled":
+        wandb.init(
+            project=cfg.wandb.project,
+            name=cfg.wandb.name,
+            entity=cfg.wandb.entity,
+            config=dict(cfg),
+            mode=cfg.wandb.mode,
+            dir=str(log_dir),
+        )
+        logger.info("Initialized W&B logging")
+
+    # Create agent
     cfg.agent.device = device
     agent = DDPGAgent(cfg.agent)
     logger.info("Created DDPG agent")
@@ -82,6 +94,8 @@ def main(cfg: DictConfig) -> None:
         episode_reward = 0
         episode_steps = 0
         done = False
+        total_critic_loss = 0
+        total_actor_loss = 0
 
         while not done:
             episode_steps += 1
@@ -100,19 +114,25 @@ def main(cfg: DictConfig) -> None:
                 len(agent.replay_buffer) > cfg.agent.batch_size
                 and total_steps > cfg.env.max_steps
             ):
-                agent.train()
+                critic_loss, actor_loss = agent.train()
+                total_critic_loss += critic_loss
+                total_actor_loss += actor_loss
 
             state = next_state
 
             if truncated:
                 done = True
 
-        metrics = {
-            "episode": episode,
-            "reward": episode_reward,
-            "steps": episode_steps,
-            "total_steps": total_steps,
-        }
+        # Update metrics
+        metrics.push_back(
+            reward=episode_reward,
+            critic_loss=total_critic_loss,
+            actor_loss=total_actor_loss,
+            length=episode_steps,
+            action=action,
+            state=state,
+            info=info,
+        )
 
         # Update best reward
         if episode_reward > best_reward:
@@ -123,16 +143,17 @@ def main(cfg: DictConfig) -> None:
             f"Episode {episode}: Reward = {episode_reward:.2f}, Steps = {episode_steps}, Best = {best_reward:.2f}"
         )
 
-        if cfg.wandb.mode != "disabled":
-            wandb.log(metrics)
-
-        # if episode_reward >= cfg.env.max_episode_reward:
-        #     logger.success(f"Solved in {episode} episodes!")
-        #     break
+    # Save final metrics
+    metrics.save(log_dir)
+    metrics.save_summary(log_dir)
+    logger.info("\nFinal metrics summary:")
+    metrics.print_summary()
 
     if cfg.wandb.mode != "disabled":
         wandb.finish()
 
+    if writer:
+        writer.close()
     logger.info("Training completed!")
 
 

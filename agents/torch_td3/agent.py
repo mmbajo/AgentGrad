@@ -19,6 +19,8 @@ class DDPGAgent:
         self.actor = Actor(config)
         self.critic = Critic(config)
         self.replay_buffer = ReplayBuffer(config)
+        
+        self.loss_fn = nn.MSELoss()
 
     def _update_target_networks(self) -> None:
         self.actor.update()
@@ -28,7 +30,8 @@ class DDPGAgent:
         self, next_state: torch.Tensor, reward: torch.Tensor, done: torch.Tensor
     ) -> torch.Tensor:
         next_action = self.actor.actor_target_model(next_state)
-        target_q = self.critic.critic_target_model(next_state, next_action)
+        target_q1, target_q2 = self.critic.critic_target_model(next_state, next_action)
+        target_q = torch.min(target_q1, target_q2)
         target_value = reward + self.gamma * (1 - done) * target_q
         return target_value.detach()
 
@@ -41,13 +44,14 @@ class DDPGAgent:
         done: torch.Tensor,
     ) -> torch.Tensor:
         target_value = self._compute_target_value(next_state, reward, done)
-        current_value = self.critic.critic_model(state, action)
-        critic_loss = nn.MSELoss()(current_value, target_value)
+        current_value1, current_value2 = self.critic.critic_model(state, action)
+        critic_loss = self.loss_fn(current_value1, target_value) + self.loss_fn(current_value2, target_value)
         return critic_loss
 
     def _compute_actor_loss(self, state: torch.Tensor) -> torch.Tensor:
         action = self.actor.actor_model(state)
-        actor_loss = -self.critic.critic_model(state, action).mean()
+        q1, q2 = self.critic.critic_model(state, action)
+        actor_loss = -torch.min(q1, q2).mean()
         return actor_loss
 
     def store_experience(

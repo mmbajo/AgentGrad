@@ -9,7 +9,7 @@ from agents.torch_td3.critic import Critic
 from agents.utils.replay_buffer import ReplayBuffer
 
 
-class DDPGAgent:
+class TD3Agent:
     def __init__(self, config: Dict[str, Any]) -> None:
         self.config = config
         self.gamma = config.gamma
@@ -28,6 +28,7 @@ class DDPGAgent:
         
         self.loss_fn = nn.MSELoss()
         self.global_step = 0
+
     def _update_target_networks(self) -> None:
         self.actor.update()
         self.critic.update()
@@ -35,19 +36,24 @@ class DDPGAgent:
     def _compute_target_value(
         self, next_state: torch.Tensor, reward: torch.Tensor, done: torch.Tensor
     ) -> torch.Tensor:
-        
-        def target_policy_smoothing(action: torch.Tensor) -> torch.Tensor:
-            noise = torch.normal(0, self.target_policy_noise, size=self.action_dim)
-            clipped_noise = torch.clamp(noise, -self.target_policy_clip, self.target_policy_clip)
-            noised_action = action + clipped_noise
-            clipped_noised_action = torch.clamp(noised_action, self.action_low, self.action_high)
-            return clipped_noised_action
-        
-        next_action = target_policy_smoothing(self.actor.actor_target_model(next_state))
-        target_q1, target_q2 = self.critic.critic_target_model(next_state, next_action)
-        target_q = torch.min(target_q1, target_q2)
-        target_value = reward + self.gamma * (1 - done) * target_q
-        return target_value.detach()
+        with torch.no_grad():
+            # Target policy smoothing
+            noise = torch.randn_like(next_state) * self.target_policy_noise
+            noise = torch.clamp(noise, -self.target_policy_clip, self.target_policy_clip)
+            
+            next_action = self.actor.actor_target_model(next_state)
+            next_action = torch.clamp(
+                next_action + noise,
+                self.action_low,
+                self.action_high
+            )
+            
+            # Get minimum Q value from both target critics
+            target_q1, target_q2 = self.critic.critic_target_model(next_state, next_action)
+            target_q = torch.min(target_q1, target_q2)
+            target_value = reward + self.gamma * (1 - done) * target_q
+            
+        return target_value
 
     def _compute_critic_loss(
         self,
@@ -58,14 +64,16 @@ class DDPGAgent:
         done: torch.Tensor,
     ) -> torch.Tensor:
         target_value = self._compute_target_value(next_state, reward, done)
-        current_value1, current_value2 = self.critic.critic_model(state, action)
-        critic_loss = self.loss_fn(current_value1, target_value) + self.loss_fn(current_value2, target_value)
+        current_q1, current_q2 = self.critic.critic_model(state, action)
+        
+        # Use the same target value for both critics
+        critic_loss = self.loss_fn(current_q1, target_value) + self.loss_fn(current_q2, target_value)
         return critic_loss
 
     def _compute_actor_loss(self, state: torch.Tensor) -> torch.Tensor:
         action = self.actor.actor_model(state)
-        q1, q2 = self.critic.critic_model(state, action)
-        actor_loss = -torch.min(q1, q2).mean()
+        q1, _ = self.critic.critic_model(state, action)  # Only use first Q-value for policy
+        actor_loss = -q1.mean()
         return actor_loss
 
     def store_experience(
@@ -88,11 +96,11 @@ class DDPGAgent:
         )
         return np.clip(
             action + noise, self.config.action_low, self.config.action_high
-        )  # Actions are typically normalized to [-1, 1]
+        )
 
     def train(self) -> Tuple[float, float]:
         state, action, reward, next_state, done = self.replay_buffer.sample(
-            self.config["batch_size"]
+            self.config.batch_size
         )
 
         # Update critic
@@ -101,7 +109,9 @@ class DDPGAgent:
         critic_loss.backward()
         self.critic.critic_optimizer.step()
 
-        if self.policy_freq == 0 or self.global_step % self.policy_freq == 0:
+        actor_loss = torch.tensor(0.0)  # Default value when not updating actor
+        # Delayed policy updates
+        if self.global_step % self.policy_freq == 0:
             # Update actor
             self.actor.actor_optimizer.zero_grad()
             actor_loss = self._compute_actor_loss(state)
@@ -110,15 +120,12 @@ class DDPGAgent:
 
             # Update target networks
             self._update_target_networks()
+
         self.global_step += 1
         return critic_loss.item(), actor_loss.item()
 
     def get_save_dict(self) -> Dict[str, Any]:
-        """Get complete state dict for saving.
-        
-        Returns:
-            Dictionary containing all states needed to restore the agent
-        """
+        """Get complete state dict for saving."""
         return {
             "actor_model_state": self.actor.actor_model.state_dict(),
             "actor_target_model_state": self.actor.actor_target_model.state_dict(),
@@ -126,17 +133,15 @@ class DDPGAgent:
             "critic_model_state": self.critic.critic_model.state_dict(),
             "critic_target_model_state": self.critic.critic_target_model.state_dict(),
             "critic_optimizer_state": self.critic.critic_optimizer.state_dict(),
+            "global_step": self.global_step,
         }
     
     def load_save_dict(self, save_dict: Dict[str, Any]) -> None:
-        """Load complete state from saved dictionary.
-        
-        Args:
-            save_dict: Dictionary containing saved states
-        """
+        """Load complete state from saved dictionary."""
         self.actor.actor_model.load_state_dict(save_dict["actor_model_state"])
         self.actor.actor_target_model.load_state_dict(save_dict["actor_target_model_state"])
         self.actor.actor_optimizer.load_state_dict(save_dict["actor_optimizer_state"])
         self.critic.critic_model.load_state_dict(save_dict["critic_model_state"])
         self.critic.critic_target_model.load_state_dict(save_dict["critic_target_model_state"])
         self.critic.critic_optimizer.load_state_dict(save_dict["critic_optimizer_state"])
+        self.global_step = save_dict.get("global_step", 0)

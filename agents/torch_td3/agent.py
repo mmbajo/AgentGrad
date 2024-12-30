@@ -45,7 +45,7 @@ class TD3Agent:
             
             # Apply target policy smoothing if enabled
             if self.use_target_smoothing:
-                noise = torch.randn_like(next_state) * self.target_policy_noise
+                noise = torch.randn_like(next_action) * self.target_policy_noise
                 noise = torch.clamp(noise, -self.target_policy_clip, self.target_policy_clip)
                 next_action = torch.clamp(
                     next_action + noise,

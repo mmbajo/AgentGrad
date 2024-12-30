@@ -15,7 +15,9 @@ class CriticModel(nn.Module):
         self.action_dim = config.action_dim
         self.hidden_dim = config.hidden_dim
         self.device = config.device
+        self.use_double_q = config.get("use_double_q", True)  # Default to True for backward compatibility
 
+        # First Q-network
         self.net1 = nn.Sequential(
             nn.Linear(self.state_dim + self.action_dim, self.hidden_dim),
             nn.ReLU(),
@@ -23,13 +25,16 @@ class CriticModel(nn.Module):
             nn.ReLU(),
             nn.Linear(self.hidden_dim, 1),
         )
-        self.net2 = nn.Sequential(
-            nn.Linear(self.state_dim + self.action_dim, self.hidden_dim),
-            nn.ReLU(),
-            nn.Linear(self.hidden_dim, self.hidden_dim),
-            nn.ReLU(),
-            nn.Linear(self.hidden_dim, 1),
-        )
+
+        # Second Q-network (only if double Q is enabled)
+        if self.use_double_q:
+            self.net2 = nn.Sequential(
+                nn.Linear(self.state_dim + self.action_dim, self.hidden_dim),
+                nn.ReLU(),
+                nn.Linear(self.hidden_dim, self.hidden_dim),
+                nn.ReLU(),
+                nn.Linear(self.hidden_dim, 1),
+            )
 
         self.to(self.device)
 
@@ -50,7 +55,14 @@ class CriticModel(nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         state, action = self._format(state, action)
         state_action = torch.cat([state, action], dim=-1)
-        return self.net1(state_action), self.net2(state_action)
+        q1 = self.net1(state_action)
+        
+        if self.use_double_q:
+            q2 = self.net2(state_action)
+            return q1, q2
+        else:
+            # Return same Q value twice when double Q is disabled
+            return q1, q1
 
     def get_value(
         self, state: torch.Tensor | NDArray[np.float32], action: torch.Tensor | NDArray[np.float32]
@@ -64,12 +76,19 @@ class Critic:
         self.config = config
         self.device = config.device
         self.tau = config.tau
+        self.use_double_q = config.get("use_double_q", True)  # Default to True for backward compatibility
+        
         self.critic_model = CriticModel(config)
         self.critic_target_model = CriticModel(config)
         self.critic_target_model.load_state_dict(self.critic_model.state_dict())
-        self.critic_optimizer = optim.Adam(
-            self.critic_model.parameters(), lr=config.critic_lr
-        )
+        
+        # Only optimize parameters of active networks
+        if self.use_double_q:
+            params = self.critic_model.parameters()
+        else:
+            params = self.critic_model.net1.parameters()
+            
+        self.critic_optimizer = optim.Adam(params, lr=config.critic_lr)
 
     def update(self) -> None:
         for param, target_param in zip(

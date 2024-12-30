@@ -27,7 +27,7 @@ wandb:
 
 hydra:
   run:
-    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    dir: outputs/${agent.name}_${env.name}_${seed}
   sweep:
-    dir: multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    dir: multirun/${agent.name}_${env.name}_${seed}
     subdir: ${hydra.job.num} 

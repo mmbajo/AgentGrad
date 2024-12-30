@@ -1,0 +1,4 @@
+name: Humanoid-v5
+max_episodes: 100000
+max_steps: 10000
+max_episode_reward: 200 

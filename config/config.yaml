@@ -15,6 +15,14 @@ save:
   metrics_dir: "metrics"  # Directory for metric files
   model_dir: "models"    # Directory for model checkpoints
 
+# Evaluation configuration
+eval:
+  exp_dir: ${hydra:runtime.output_dir}  # Uses the same output directory as training
+  model_name: "final_model.pt"  # Model to evaluate (best_model.pt, final_model.pt, or model_episode_X.pt)
+  episodes: 10  # Number of evaluation episodes
+  seed: 420  # Random seed for evaluation
+  record_video: true  # Whether to record evaluation videos
+
 # Logging configuration
 tensorboard:
   enabled: false  # Whether to use tensorboard logging

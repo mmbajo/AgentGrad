@@ -14,6 +14,11 @@ class DDPGAgent:
         self.config = config
         self.gamma = config.gamma
         self.device = config.device
+        self.target_policy_noise = config.target_policy_noise
+        self.target_policy_clip = config.target_policy_clip
+        self.action_dim = config.action_dim
+        self.action_low = config.action_low
+        self.action_high = config.action_high
 
         # Create networks
         self.actor = Actor(config)
@@ -29,7 +34,15 @@ class DDPGAgent:
     def _compute_target_value(
         self, next_state: torch.Tensor, reward: torch.Tensor, done: torch.Tensor
     ) -> torch.Tensor:
-        next_action = self.actor.actor_target_model(next_state)
+        
+        def target_policy_smoothing(action: torch.Tensor) -> torch.Tensor:
+            noise = torch.normal(0, self.target_policy_noise, size=self.action_dim)
+            clipped_noise = torch.clamp(noise, -self.target_policy_clip, self.target_policy_clip)
+            noised_action = action + clipped_noise
+            clipped_noised_action = torch.clamp(noised_action, self.action_low, self.action_high)
+            return clipped_noised_action
+        
+        next_action = target_policy_smoothing(self.actor.actor_target_model(next_state))
         target_q1, target_q2 = self.critic.critic_target_model(next_state, next_action)
         target_q = torch.min(target_q1, target_q2)
         target_value = reward + self.gamma * (1 - done) * target_q

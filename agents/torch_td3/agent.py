@@ -19,6 +19,7 @@ class DDPGAgent:
         self.action_dim = config.action_dim
         self.action_low = config.action_low
         self.action_high = config.action_high
+        self.policy_freq = config.policy_freq
 
         # Create networks
         self.actor = Actor(config)
@@ -26,7 +27,7 @@ class DDPGAgent:
         self.replay_buffer = ReplayBuffer(config)
         
         self.loss_fn = nn.MSELoss()
-
+        self.global_step = 0
     def _update_target_networks(self) -> None:
         self.actor.update()
         self.critic.update()
@@ -100,14 +101,16 @@ class DDPGAgent:
         critic_loss.backward()
         self.critic.critic_optimizer.step()
 
-        # Update actor
-        self.actor.actor_optimizer.zero_grad()
-        actor_loss = self._compute_actor_loss(state)
-        actor_loss.backward()
-        self.actor.actor_optimizer.step()
+        if self.policy_freq == 0 or self.global_step % self.policy_freq == 0:
+            # Update actor
+            self.actor.actor_optimizer.zero_grad()
+            actor_loss = self._compute_actor_loss(state)
+            actor_loss.backward()
+            self.actor.actor_optimizer.step()
 
-        # Update target networks
-        self._update_target_networks()
+            # Update target networks
+            self._update_target_networks()
+        self.global_step += 1
         return critic_loss.item(), actor_loss.item()
 
     def get_save_dict(self) -> Dict[str, Any]:

@@ -10,7 +10,7 @@ import random
 import os
 from dotenv import load_dotenv
 
-from agents.torch_ddpg.agent import DDPGAgent
+from agents.factory import AgentFactory
 from utils.logger import setup_logger
 from utils.metrics.factory import MetricsFactory
 from utils.save_manager import SaveManager
@@ -85,8 +85,8 @@ def main(cfg: DictConfig) -> None:
 
     # Create agent
     cfg.agent.device = device
-    agent = DDPGAgent(cfg.agent)
-    logger.info("Created DDPG agent")
+    agent = AgentFactory.create(cfg.agent)
+    logger.info(f"Created {cfg.agent.name} agent")
 
     # Setup save manager
     save_manager = SaveManager(

@@ -1,0 +1,27 @@
+# Agent name
+name: td3
+
+# Model parameters
+state_dim: ???  # Set from environment
+action_dim: ???  # Set from environment
+action_high: ???  # Set from environment
+action_low: ???  # Set from environment
+hidden_dim: 512
+
+# Training hyperparameters
+gamma: 0.99
+batch_size: 256
+buffer_size: 1000000
+actor_lr: 3e-4
+critic_lr: 3e-4
+tau: 0.005
+exploration_noise: 0.1
+
+# TD3 specific parameters
+target_policy_noise: 0.2
+target_policy_clip: 0.5
+policy_freq: 2
+
+# Ablation study parameters
+use_double_q: true  # Whether to use double Q-networks
+use_target_smoothing: true  # Whether to use target policy smoothing

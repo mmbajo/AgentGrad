@@ -11,7 +11,7 @@ import random
 import os
 from dotenv import load_dotenv
 
-from agents.torch_ddpg.agent import DDPGAgent
+from agents.factory import AgentFactory
 from utils.logger import setup_logger
 from utils.metrics.factory import MetricsFactory
 from utils.save_manager import SaveManager
@@ -63,11 +63,12 @@ def evaluate(cfg: DictConfig) -> None:
     cfg.agent.device = device
 
     # Create agent and load model
-    agent = DDPGAgent(cfg.agent)
+    exp_config.agent.device = device
+    agent = AgentFactory.create(exp_config.agent)
     save_manager = SaveManager(exp_dir)
     model_path = exp_dir / cfg.save.model_dir / cfg.eval.model_name
     metadata = save_manager.load_model(agent, model_path)
-    logger.info(f"Loaded model from episode {metadata['episode']} with reward {metadata['reward']:.2f}")
+    logger.info(f"Loaded {exp_config.agent.name} model from episode {metadata['episode']} with reward {metadata['reward']:.2f}")
 
     # Setup metrics
     metrics = MetricsFactory.create(

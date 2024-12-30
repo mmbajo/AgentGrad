@@ -19,6 +19,7 @@ load_dotenv()
 os.environ["WANDB_API_KEY"] = os.getenv("WANDB_API_KEY")
 wandb.login(key=os.getenv("WANDB_API_KEY"))
 
+
 @hydra.main(version_base=None, config_path="config", config_name="config")
 def main(cfg: DictConfig) -> None:
     # Setup device
@@ -37,7 +38,7 @@ def main(cfg: DictConfig) -> None:
     # Create environment
     env = gym.make(cfg.env.name)
     logger.info(f"Created environment: {cfg.env.name}")
-    
+
     # Set random seed
     torch.manual_seed(cfg.seed)
     if torch.cuda.is_available():
@@ -61,13 +62,12 @@ def main(cfg: DictConfig) -> None:
     # Setup metrics
     if cfg.tensorboard.enabled:
         from torch.utils.tensorboard import SummaryWriter
+
         writer = SummaryWriter(log_dir=str(log_dir))
     else:
         writer = None
     metrics = MetricsFactory.create(
-        env_id=cfg.env.name,
-        writer=writer,
-        use_wandb=cfg.wandb.mode != "disabled"
+        env_id=cfg.env.name, writer=writer, use_wandb=cfg.wandb.mode != "disabled"
     )
     logger.info(f"Created metrics for environment: {cfg.env.name}")
 

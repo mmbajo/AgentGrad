@@ -22,7 +22,7 @@ load_dotenv()
 @hydra.main(version_base=None, config_path="config", config_name="config")
 def evaluate(cfg: DictConfig) -> None:
     """Evaluate a trained agent."""
-    
+
     # Setup device
     if torch.cuda.is_available():
         device = "cuda"
@@ -45,7 +45,7 @@ def evaluate(cfg: DictConfig) -> None:
         render_mode="rgb_array",
     )
     logger.info(f"Created environment: {cfg.env.name}")
-    
+
     # Set random seed
     torch.manual_seed(cfg.eval.seed)
     if torch.cuda.is_available():
@@ -68,7 +68,9 @@ def evaluate(cfg: DictConfig) -> None:
     save_manager = SaveManager(exp_dir)
     model_path = exp_dir / cfg.save.model_dir / cfg.eval.model_name
     metadata = save_manager.load_model(agent, model_path)
-    logger.info(f"Loaded {exp_config.agent.name} model from episode {metadata['episode']} with reward {metadata['reward']:.2f}")
+    logger.info(
+        f"Loaded {exp_config.agent.name} model from episode {metadata['episode']} with reward {metadata['reward']:.2f}"
+    )
 
     # Setup metrics
     metrics = MetricsFactory.create(
@@ -148,4 +150,4 @@ def evaluate(cfg: DictConfig) -> None:
 
 
 if __name__ == "__main__":
-    evaluate() 
+    evaluate()

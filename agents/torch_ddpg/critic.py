@@ -27,26 +27,32 @@ class CriticModel(nn.Module):
         self.to(self.device)
 
     def _format(
-        self, state: torch.Tensor | NDArray[np.float32], action: torch.Tensor | NDArray[np.float32]
+        self,
+        state: torch.Tensor | NDArray[np.float32],
+        action: torch.Tensor | NDArray[np.float32],
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         if isinstance(state, np.ndarray):
             state = torch.FloatTensor(state)
         if isinstance(action, np.ndarray):
             action = torch.FloatTensor(action)
-            
+
         state = state.to(self.device)
         action = action.to(self.device)
         return state, action
 
     def forward(
-        self, state: torch.Tensor | NDArray[np.float32], action: torch.Tensor | NDArray[np.float32]
+        self,
+        state: torch.Tensor | NDArray[np.float32],
+        action: torch.Tensor | NDArray[np.float32],
     ) -> torch.Tensor:
         state, action = self._format(state, action)
         state_action = torch.cat([state, action], dim=-1)
         return self.net(state_action)
 
     def get_value(
-        self, state: torch.Tensor | NDArray[np.float32], action: torch.Tensor | NDArray[np.float32]
+        self,
+        state: torch.Tensor | NDArray[np.float32],
+        action: torch.Tensor | NDArray[np.float32],
     ) -> torch.Tensor:
         state, action = self._format(state, action)
         return self.forward(state, action)

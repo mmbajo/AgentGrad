@@ -20,16 +20,20 @@ class TD3Agent:
         self.action_low = config.action_low
         self.action_high = config.action_high
         self.policy_freq = config.policy_freq
-        
+
         # Ablation study parameters
-        self.use_double_q = config.get("use_double_q", True)  # Default to True for backward compatibility
-        self.use_target_smoothing = config.get("use_target_smoothing", True)  # Default to True for backward compatibility
+        self.use_double_q = config.get(
+            "use_double_q", True
+        )  # Default to True for backward compatibility
+        self.use_target_smoothing = config.get(
+            "use_target_smoothing", True
+        )  # Default to True for backward compatibility
 
         # Create networks
         self.actor = Actor(config)
         self.critic = Critic(config)
         self.replay_buffer = ReplayBuffer(config)
-        
+
         self.loss_fn = nn.MSELoss()
         self.global_step = 0
 
@@ -42,28 +46,30 @@ class TD3Agent:
     ) -> torch.Tensor:
         with torch.no_grad():
             next_action = self.actor.actor_target_model(next_state)
-            
+
             # Apply target policy smoothing if enabled
             if self.use_target_smoothing:
                 noise = torch.randn_like(next_action) * self.target_policy_noise
-                noise = torch.clamp(noise, -self.target_policy_clip, self.target_policy_clip)
-                next_action = torch.clamp(
-                    next_action + noise,
-                    self.action_low,
-                    self.action_high
+                noise = torch.clamp(
+                    noise, -self.target_policy_clip, self.target_policy_clip
                 )
-            
+                next_action = torch.clamp(
+                    next_action + noise, self.action_low, self.action_high
+                )
+
             # Get Q values from target critics
-            target_q1, target_q2 = self.critic.critic_target_model(next_state, next_action)
-            
+            target_q1, target_q2 = self.critic.critic_target_model(
+                next_state, next_action
+            )
+
             # Use minimum Q value if double Q is enabled, otherwise use Q1
             if self.use_double_q:
                 target_q = torch.min(target_q1, target_q2)
             else:
                 target_q = target_q1
-                
+
             target_value = reward + self.gamma * (1 - done) * target_q
-            
+
         return target_value
 
     def _compute_critic_loss(
@@ -76,18 +82,22 @@ class TD3Agent:
     ) -> torch.Tensor:
         target_value = self._compute_target_value(next_state, reward, done)
         current_q1, current_q2 = self.critic.critic_model(state, action)
-        
+
         # Compute loss based on whether double Q is enabled
         if self.use_double_q:
-            critic_loss = self.loss_fn(current_q1, target_value) + self.loss_fn(current_q2, target_value)
+            critic_loss = self.loss_fn(current_q1, target_value) + self.loss_fn(
+                current_q2, target_value
+            )
         else:
             critic_loss = self.loss_fn(current_q1, target_value)
-            
+
         return critic_loss
 
     def _compute_actor_loss(self, state: torch.Tensor) -> torch.Tensor:
         action = self.actor.actor_model(state)
-        q1, _ = self.critic.critic_model(state, action)  # Only use first Q-value for policy
+        q1, _ = self.critic.critic_model(
+            state, action
+        )  # Only use first Q-value for policy
         actor_loss = -q1.mean()
         return actor_loss
 
@@ -109,9 +119,7 @@ class TD3Agent:
         noise = np.random.normal(
             0, self.config.exploration_noise, size=self.config.action_dim
         )
-        return np.clip(
-            action + noise, self.config.action_low, self.config.action_high
-        )
+        return np.clip(action + noise, self.config.action_low, self.config.action_high)
 
     def train(self) -> Tuple[float, float]:
         state, action, reward, next_state, done = self.replay_buffer.sample(
@@ -150,13 +158,19 @@ class TD3Agent:
             "critic_optimizer_state": self.critic.critic_optimizer.state_dict(),
             "global_step": self.global_step,
         }
-    
+
     def load_save_dict(self, save_dict: Dict[str, Any]) -> None:
         """Load complete state from saved dictionary."""
         self.actor.actor_model.load_state_dict(save_dict["actor_model_state"])
-        self.actor.actor_target_model.load_state_dict(save_dict["actor_target_model_state"])
+        self.actor.actor_target_model.load_state_dict(
+            save_dict["actor_target_model_state"]
+        )
         self.actor.actor_optimizer.load_state_dict(save_dict["actor_optimizer_state"])
         self.critic.critic_model.load_state_dict(save_dict["critic_model_state"])
-        self.critic.critic_target_model.load_state_dict(save_dict["critic_target_model_state"])
-        self.critic.critic_optimizer.load_state_dict(save_dict["critic_optimizer_state"])
+        self.critic.critic_target_model.load_state_dict(
+            save_dict["critic_target_model_state"]
+        )
+        self.critic.critic_optimizer.load_state_dict(
+            save_dict["critic_optimizer_state"]
+        )
         self.global_step = save_dict.get("global_step", 0)

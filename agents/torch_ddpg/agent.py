@@ -95,7 +95,7 @@ class DDPGAgent:
 
     def get_save_dict(self) -> Dict[str, Any]:
         """Get complete state dict for saving.
-        
+
         Returns:
             Dictionary containing all states needed to restore the agent
         """
@@ -107,16 +107,22 @@ class DDPGAgent:
             "critic_target_model_state": self.critic.critic_target_model.state_dict(),
             "critic_optimizer_state": self.critic.critic_optimizer.state_dict(),
         }
-    
+
     def load_save_dict(self, save_dict: Dict[str, Any]) -> None:
         """Load complete state from saved dictionary.
-        
+
         Args:
             save_dict: Dictionary containing saved states
         """
         self.actor.actor_model.load_state_dict(save_dict["actor_model_state"])
-        self.actor.actor_target_model.load_state_dict(save_dict["actor_target_model_state"])
+        self.actor.actor_target_model.load_state_dict(
+            save_dict["actor_target_model_state"]
+        )
         self.actor.actor_optimizer.load_state_dict(save_dict["actor_optimizer_state"])
         self.critic.critic_model.load_state_dict(save_dict["critic_model_state"])
-        self.critic.critic_target_model.load_state_dict(save_dict["critic_target_model_state"])
-        self.critic.critic_optimizer.load_state_dict(save_dict["critic_optimizer_state"])
+        self.critic.critic_target_model.load_state_dict(
+            save_dict["critic_target_model_state"]
+        )
+        self.critic.critic_optimizer.load_state_dict(
+            save_dict["critic_optimizer_state"]
+        )

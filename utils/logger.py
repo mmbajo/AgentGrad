@@ -6,7 +6,7 @@ from datetime import datetime
 
 def setup_logger(log_dir: Path) -> None:
     """Setup loguru logger with file and console outputs.
-    
+
     Args:
         log_dir: Directory to save log files
     """
@@ -30,5 +30,5 @@ def setup_logger(log_dir: Path) -> None:
         format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
         level="DEBUG",
     )
-    
-    return logger 
+
+    return logger

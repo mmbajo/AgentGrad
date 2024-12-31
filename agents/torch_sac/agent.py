@@ -45,17 +45,8 @@ class SACAgent:
         self, next_state: torch.Tensor, reward: torch.Tensor, done: torch.Tensor
     ) -> torch.Tensor:
         with torch.no_grad():
-            next_action = self.actor.actor_target_model(next_state)
-
-            # Apply target policy smoothing if enabled
-            if self.use_target_smoothing:
-                noise = torch.randn_like(next_action) * self.target_policy_noise
-                noise = torch.clamp(
-                    noise, -self.target_policy_clip, self.target_policy_clip
-                )
-                next_action = torch.clamp(
-                    next_action + noise, self.action_low, self.action_high
-                )
+            # Action comes from current policy
+            next_action = self.actor.get_action(next_state)
 
             # Get Q values from target critics
             target_q1, target_q2 = self.critic.critic_target_model(

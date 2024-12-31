@@ -63,13 +63,12 @@ def evaluate(cfg: DictConfig) -> None:
     cfg.agent.device = device
 
     # Create agent and load model
-    exp_config.agent.device = device
-    agent = AgentFactory.create(exp_config.agent)
+    agent = AgentFactory.create(cfg.agent)
     save_manager = SaveManager(exp_dir)
     model_path = exp_dir / cfg.save.model_dir / cfg.eval.model_name
     metadata = save_manager.load_model(agent, model_path)
     logger.info(
-        f"Loaded {exp_config.agent.name} model from episode {metadata['episode']} with reward {metadata['reward']:.2f}"
+        f"Loaded {cfg.agent.name} model from episode {metadata['episode']} with reward {metadata['reward']:.2f}"
     )
 
     # Setup metrics

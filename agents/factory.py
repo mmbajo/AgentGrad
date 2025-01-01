@@ -4,6 +4,7 @@ from loguru import logger
 
 from agents.torch_ddpg.agent import DDPGAgent
 from agents.torch_td3.agent import TD3Agent
+from agents.torch_sac.agent import SACAgent
 
 
 class AgentFactory:
@@ -12,6 +13,7 @@ class AgentFactory:
     _registry = {
         "ddpg": DDPGAgent,
         "td3": TD3Agent,
+        "sac": SACAgent,
     }
 
     @classmethod
@@ -19,7 +21,7 @@ class AgentFactory:
         """Register a new agent class.
 
         Args:
-            name: Name of the agent (e.g., "ddpg", "td3")
+            name: Name of the agent (e.g., "ddpg", "td3", "sac")
             agent_class: Agent class to register
         """
         cls._registry[name] = agent_class

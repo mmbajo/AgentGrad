@@ -17,61 +17,73 @@ class ActorModel(nn.Module):
         self.device = config.device
         self.action_high = config.action_high
         self.action_low = config.action_low
-        self.epsilon = 1e-6
+        self.epsilon = 1e-6  # For numerical stability
+        
+        # Shared encoder
+        self.encoder = nn.Sequential(
+            nn.Linear(self.state_dim, self.hidden_dim),
+            nn.ReLU(),
+            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.ReLU()
+        )
 
-        self.mean_net = nn.Sequential(
-            nn.Linear(self.state_dim, self.hidden_dim),
-            nn.ReLU(),
-            nn.Linear(self.hidden_dim, self.hidden_dim),
-            nn.ReLU(),
-            nn.Linear(self.hidden_dim, self.action_dim),
-        )
-        self.log_std_net = nn.Sequential(
-            nn.Linear(self.state_dim, self.hidden_dim),
-            nn.ReLU(),
-            nn.Linear(self.hidden_dim, self.hidden_dim),
-            nn.ReLU(),
-            nn.Linear(self.hidden_dim, self.action_dim),
-        )
+        # Mean and log_std heads
+        self.mean_net = nn.Linear(self.hidden_dim, self.action_dim)
+        self.log_std_net = nn.Linear(self.hidden_dim, self.action_dim)
+        
+        # Initialize output layers with small weights
+        nn.init.uniform_(self.mean_net.weight, -3e-3, 3e-3)
+        nn.init.uniform_(self.mean_net.bias, -3e-3, 3e-3)
+        nn.init.uniform_(self.log_std_net.weight, -3e-3, 3e-3)
+        nn.init.uniform_(self.log_std_net.bias, -3e-3, 3e-3)
 
         self.to(self.device)
 
-    def forward(self, state: torch.Tensor) -> torch.Tensor:
+    def forward(self, state: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Forward pass returning mean and log_std."""
         if isinstance(state, np.ndarray):
             state = torch.FloatTensor(state).to(self.device)
-        mean = self.mean_net(state)
-        log_std = self.log_std_net(state)
+            
+        x = self.encoder(state)
+        mean = self.mean_net(x)
+        log_std = self.log_std_net(x)
+        
+        # Clamp log_std for stability
+        log_std = torch.clamp(log_std, -20, 2)
+        
         return mean, log_std
     
-    def _full_forward(self, state: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        
-        def _rescale_action(action: torch.Tensor) -> torch.Tensor:
-            tanh_low, tanh_high = -1, 1
-            ret = (action - tanh_low) / (tanh_high - tanh_low) * (self.action_high - self.action_low) + self.action_low
-            return ret
-        
+    def sample(self, state: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Sample action from the Gaussian policy."""
         mean, log_std = self.forward(state)
-        curr_dist = torch.distributions.Normal(mean, log_std.exp())
-        pre_tanh_action = curr_dist.rsample()
-        tanh_action = torch.tanh(pre_tanh_action)
-        action = _rescale_action(tanh_action)
+        std = log_std.exp()
         
-        # Original formula for change of variable:
-        # log p(y) = log p(x) - log|det(dy/dx)|
-        # y = tanh(x) -> dy/dx = 1 - tanh(x)^2
-        log_px = curr_dist.log_prob(pre_tanh_action)
-        log_jacobian = torch.log(1 - tanh_action.pow(2) + self.epsilon)
-        log_prob = log_px - log_jacobian
-        log_prob = log_prob.sum(dim=-1, keepdim=True) # determinant of Jacobian
+        # Sample from normal distribution
+        normal = torch.distributions.Normal(mean, std)
+        # https://pytorch.org/docs/stable/_modules/torch/distributions/distribution.html#Distribution.rsample
+        x = normal.rsample()  # Reparameterization trick
         
-        return action, log_prob, _rescale_action(mean)
-
-    def get_action(self, state: NDArray[np.float32]) -> NDArray[np.float32]:
-        with torch.no_grad():
-            if not isinstance(state, torch.Tensor):
-                state = torch.FloatTensor(state).to(self.device)
-            action = self.forward(state)
-            return action.cpu().numpy()
+        # Apply tanh squashing
+        y = torch.tanh(x)
+        
+        # Scale action from [-1, 1] to [low, high]
+        action = self._rescale_action(y)
+        
+        # Compute log probability
+        # log p(a) = log p(x) - log|det(da/dx)|
+        # = log p(x) - log|det(dy/dx) * det(da/dy)|
+        log_prob = (
+            normal.log_prob(x) - 
+            torch.log(1 - y.pow(2) + self.epsilon) # Account for tanh squashing: log|det(dy/dx)| = log(1 - tanh(x)^2)
+        )
+        
+        log_prob = log_prob.sum(-1, keepdim=True)  # Sum over action dimensions
+        
+        return action, log_prob, mean
+    
+    def _rescale_action(self, action: torch.Tensor) -> torch.Tensor:
+        """Rescale action from [-1, 1] to [low, high]."""
+        return 0.5 * (action + 1.0) * (self.action_high - self.action_low) + self.action_low
 
 
 class Actor:
@@ -79,20 +91,14 @@ class Actor:
         self.config = config
         self.device = config.device
         self.actor_model = ActorModel(config)
-        self.actor_target_model = ActorModel(config)
-        self.actor_target_model.load_state_dict(self.actor_model.state_dict())
         self.actor_optimizer = optim.Adam(
             self.actor_model.parameters(), lr=config.actor_lr
         )
-        self.tau = config.tau
 
-    def get_action(self, state: NDArray[np.float32]) -> NDArray[np.float32]:
-        return self.actor_model.get_action(state)
-
-    def update(self) -> None:
-        for param, target_param in zip(
-            self.actor_model.parameters(), self.actor_target_model.parameters()
-        ):
-            target_param.data.copy_(
-                self.tau * param.data + (1 - self.tau) * target_param.data
-            )
+    def get_action(
+        self, state: torch.Tensor | NDArray[np.float32]
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Get action, log probability, and mean from policy."""
+        if isinstance(state, np.ndarray):
+            state = torch.FloatTensor(state).to(self.device)
+        return self.actor_model.sample(state)

@@ -14,44 +14,48 @@ class SACAgent:
         self.config = config
         self.gamma = config.gamma
         self.device = config.device
-        self.target_policy_noise = config.target_policy_noise
-        self.target_policy_clip = config.target_policy_clip
         self.action_dim = config.action_dim
         self.action_low = config.action_low
         self.action_high = config.action_high
-        self.policy_freq = config.policy_freq
+
+        # SAC specific parameters
+        self.auto_tune_alpha = config.get("auto_tune_alpha", True)
+        self.target_entropy = config.get("target_entropy", -self.action_dim)
+        self.initial_alpha = config.get("initial_alpha", 1.0)
 
         # Ablation study parameters
-        self.use_double_q = config.get(
-            "use_double_q", True
-        )  # Default to True for backward compatibility
-        self.use_target_smoothing = config.get(
-            "use_target_smoothing", True
-        )  # Default to True for backward compatibility
+        self.use_double_q = config.get("use_double_q", True)
 
         # Create networks
         self.actor = Actor(config)
         self.critic = Critic(config)
         self.replay_buffer = ReplayBuffer(config)
 
+        # Initialize temperature parameter
+        self.log_alpha = torch.tensor(np.log(self.initial_alpha), requires_grad=True, device=self.device)
+        if self.auto_tune_alpha:
+            self.alpha_optimizer = torch.optim.Adam([self.log_alpha], lr=config.alpha_lr)
+        
         self.loss_fn = nn.MSELoss()
         self.global_step = 0
 
+    @property
+    def alpha(self) -> torch.Tensor:
+        """Get current temperature parameter."""
+        return self.log_alpha.exp()
+
     def _update_target_networks(self) -> None:
-        self.actor.update()
         self.critic.update()
 
     def _compute_target_value(
         self, next_state: torch.Tensor, reward: torch.Tensor, done: torch.Tensor
     ) -> torch.Tensor:
         with torch.no_grad():
-            # Action comes from current policy
-            next_action = self.actor.get_action(next_state)
+            # Sample action from policy
+            next_action, next_log_prob, _ = self.actor.get_action(next_state)
 
             # Get Q values from target critics
-            target_q1, target_q2 = self.critic.critic_target_model(
-                next_state, next_action
-            )
+            target_q1, target_q2 = self.critic.critic_target_model(next_state, next_action)
 
             # Use minimum Q value if double Q is enabled, otherwise use Q1
             if self.use_double_q:
@@ -59,7 +63,8 @@ class SACAgent:
             else:
                 target_q = target_q1
 
-            target_value = reward + self.gamma * (1 - done) * target_q
+            # Add entropy term
+            target_value = reward + self.gamma * (1 - done) * (target_q - self.alpha * next_log_prob)
 
         return target_value
 
@@ -76,21 +81,27 @@ class SACAgent:
 
         # Compute loss based on whether double Q is enabled
         if self.use_double_q:
-            critic_loss = self.loss_fn(current_q1, target_value) + self.loss_fn(
-                current_q2, target_value
-            )
+            critic_loss = self.loss_fn(current_q1, target_value) + self.loss_fn(current_q2, target_value)
         else:
             critic_loss = self.loss_fn(current_q1, target_value)
 
         return critic_loss
 
-    def _compute_actor_loss(self, state: torch.Tensor) -> torch.Tensor:
-        action = self.actor.actor_model(state)
-        q1, _ = self.critic.critic_model(
-            state, action
-        )  # Only use first Q-value for policy
-        actor_loss = -q1.mean()
-        return actor_loss
+    def _compute_actor_loss(self, state: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        action, log_prob, _ = self.actor.get_action(state)
+        q1, q2 = self.critic.critic_model(state, action)
+        
+        # Use minimum Q value for policy update
+        min_q = torch.min(q1, q2) if self.use_double_q else q1
+        
+        # Policy loss is expectation of Q-value minus entropy
+        actor_loss = (self.alpha * log_prob - min_q).mean()
+        
+        return actor_loss, log_prob
+
+    def _compute_temperature_loss(self, log_prob: torch.Tensor) -> torch.Tensor:
+        """Compute loss for temperature parameter."""
+        return -(self.log_alpha * (log_prob + self.target_entropy).detach()).mean()
 
     def store_experience(
         self,
@@ -103,14 +114,20 @@ class SACAgent:
         self.replay_buffer.add(state, action, reward, next_state, done)
 
     def get_action(self, state: NDArray[np.float32]) -> NDArray[np.float32]:
-        return self.actor.get_action(state)
+        """Get deterministic action for evaluation."""
+        with torch.no_grad():
+            if not isinstance(state, torch.Tensor):
+                state = torch.FloatTensor(state).to(self.device)
+            _, _, mean = self.actor.get_action(state)
+            return mean.cpu().numpy()
 
     def get_exploration_action(self, state: NDArray[np.float32]) -> NDArray[np.float32]:
-        action = self.get_action(state)
-        noise = np.random.normal(
-            0, self.config.exploration_noise, size=self.config.action_dim
-        )
-        return np.clip(action + noise, self.config.action_low, self.config.action_high)
+        """Get stochastic action for training."""
+        with torch.no_grad():
+            if not isinstance(state, torch.Tensor):
+                state = torch.FloatTensor(state).to(self.device)
+            action, _, _ = self.actor.get_action(state)
+            return action.cpu().numpy()
 
     def train(self) -> Tuple[float, float]:
         state, action, reward, next_state, done = self.replay_buffer.sample(
@@ -123,45 +140,51 @@ class SACAgent:
         critic_loss.backward()
         self.critic.critic_optimizer.step()
 
-        actor_loss = torch.tensor(0.0)  # Default value when not updating actor
-        # Delayed policy updates
-        if self.global_step % self.policy_freq == 0:
-            # Update actor
-            self.actor.actor_optimizer.zero_grad()
-            actor_loss = self._compute_actor_loss(state)
-            actor_loss.backward()
-            self.actor.actor_optimizer.step()
+        # Update actor
+        self.actor.actor_optimizer.zero_grad()
+        actor_loss, log_prob = self._compute_actor_loss(state)
+        actor_loss.backward()
+        self.actor.actor_optimizer.step()
 
-            # Update target networks
-            self._update_target_networks()
+        # Update temperature
+        if self.auto_tune_alpha:
+            self.alpha_optimizer.zero_grad()
+            temp_loss = self._compute_temperature_loss(log_prob)
+            temp_loss.backward()
+            self.alpha_optimizer.step()
+
+        # Update target networks
+        self._update_target_networks()
 
         self.global_step += 1
         return critic_loss.item(), actor_loss.item()
 
     def get_save_dict(self) -> Dict[str, Any]:
         """Get complete state dict for saving."""
-        return {
+        save_dict = {
             "actor_model_state": self.actor.actor_model.state_dict(),
-            "actor_target_model_state": self.actor.actor_target_model.state_dict(),
-            "actor_optimizer_state": self.actor.actor_optimizer.state_dict(),
             "critic_model_state": self.critic.critic_model.state_dict(),
             "critic_target_model_state": self.critic.critic_target_model.state_dict(),
+            "actor_optimizer_state": self.actor.actor_optimizer.state_dict(),
             "critic_optimizer_state": self.critic.critic_optimizer.state_dict(),
+            "log_alpha": self.log_alpha.data,
             "global_step": self.global_step,
         }
+        
+        if self.auto_tune_alpha:
+            save_dict["alpha_optimizer_state"] = self.alpha_optimizer.state_dict()
+            
+        return save_dict
 
     def load_save_dict(self, save_dict: Dict[str, Any]) -> None:
         """Load complete state from saved dictionary."""
         self.actor.actor_model.load_state_dict(save_dict["actor_model_state"])
-        self.actor.actor_target_model.load_state_dict(
-            save_dict["actor_target_model_state"]
-        )
-        self.actor.actor_optimizer.load_state_dict(save_dict["actor_optimizer_state"])
         self.critic.critic_model.load_state_dict(save_dict["critic_model_state"])
-        self.critic.critic_target_model.load_state_dict(
-            save_dict["critic_target_model_state"]
-        )
-        self.critic.critic_optimizer.load_state_dict(
-            save_dict["critic_optimizer_state"]
-        )
+        self.critic.critic_target_model.load_state_dict(save_dict["critic_target_model_state"])
+        self.actor.actor_optimizer.load_state_dict(save_dict["actor_optimizer_state"])
+        self.critic.critic_optimizer.load_state_dict(save_dict["critic_optimizer_state"])
+        self.log_alpha.data = save_dict["log_alpha"]
         self.global_step = save_dict.get("global_step", 0)
+        
+        if self.auto_tune_alpha and "alpha_optimizer_state" in save_dict:
+            self.alpha_optimizer.load_state_dict(save_dict["alpha_optimizer_state"])

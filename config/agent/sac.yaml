@@ -1,0 +1,26 @@
+# Agent name
+name: sac
+
+# Model parameters
+state_dim: ???  # Set from environment
+action_dim: ???  # Set from environment
+action_high: ???  # Set from environment
+action_low: ???  # Set from environment
+hidden_dim: 512
+
+# Training hyperparameters
+gamma: 0.99
+batch_size: 256
+buffer_size: 1000000
+actor_lr: 3e-4
+critic_lr: 3e-4
+alpha_lr: 3e-4  # Learning rate for temperature parameter
+tau: 0.005
+
+# SAC specific parameters
+initial_alpha: 0.2  # Initial temperature parameter
+auto_tune_alpha: false  # Whether to automatically tune alpha
+target_entropy: null  # Target entropy (if null, set to -action_dim)
+
+# Ablation study parameters
+use_double_q: true  # Whether to use double Q-networks 

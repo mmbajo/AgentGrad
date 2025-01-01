@@ -18,8 +18,8 @@ alpha_lr: 3e-4  # Learning rate for temperature parameter
 tau: 0.005
 
 # SAC specific parameters
-initial_alpha: 0.2  # Initial temperature parameter
-auto_tune_alpha: false  # Whether to automatically tune alpha
+initial_alpha: 1.0 # Initial temperature parameter
+auto_tune_alpha: true  # Whether to automatically tune alpha
 target_entropy: null  # Target entropy (if null, set to -action_dim)
 
 # Ablation study parameters

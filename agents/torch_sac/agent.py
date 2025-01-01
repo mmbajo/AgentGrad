@@ -118,8 +118,8 @@ class SACAgent:
         with torch.no_grad():
             if not isinstance(state, torch.Tensor):
                 state = torch.FloatTensor(state).to(self.device)
-            _, _, mean = self.actor.get_action(state)
-            return mean.cpu().numpy()
+            action, _, _ = self.actor.get_action(state)
+            return action.cpu().numpy()
 
     def get_exploration_action(self, state: NDArray[np.float32]) -> NDArray[np.float32]:
         """Get stochastic action for training."""

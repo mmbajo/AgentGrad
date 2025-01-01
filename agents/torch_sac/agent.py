@@ -20,8 +20,11 @@ class SACAgent:
 
         # SAC specific parameters
         self.auto_tune_alpha = config.get("auto_tune_alpha", True)
-        self.target_entropy = config.get("target_entropy", -self.action_dim)
         self.initial_alpha = config.get("initial_alpha", 1.0)
+        
+        # Set target entropy to -action_dim if not specified
+        target_entropy = config.get("target_entropy", None)
+        self.target_entropy = float(-self.action_dim) if target_entropy is None else float(target_entropy)
 
         # Ablation study parameters
         self.use_double_q = config.get("use_double_q", True)
@@ -101,7 +104,9 @@ class SACAgent:
 
     def _compute_temperature_loss(self, log_prob: torch.Tensor) -> torch.Tensor:
         """Compute loss for temperature parameter."""
-        return -(self.log_alpha * (log_prob + self.target_entropy).detach()).mean()
+        # Ensure target entropy is a tensor on the correct device
+        target_entropy = torch.tensor(self.target_entropy, device=self.device)
+        return -(self.log_alpha * (log_prob.detach() + target_entropy)).mean()
 
     def store_experience(
         self,

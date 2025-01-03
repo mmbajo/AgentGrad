@@ -54,6 +54,7 @@ def main(cfg: DictConfig) -> None:
     cfg.agent.action_dim = env.action_space.shape[0]
     cfg.agent.action_high = float(env.action_space.high[0])
     cfg.agent.action_low = float(env.action_space.low[0])
+    cfg.agent.num_timesteps = env.spec.max_episode_steps
 
     # Log agent configuration
     logger.info("\nAgent configuration:")

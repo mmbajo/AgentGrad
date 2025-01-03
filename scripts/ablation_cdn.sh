@@ -4,10 +4,10 @@
 set -e
 
 # List of environments (excluding humanoid)
-ENVS=("lunar_lander" "ant" "hopper" "walker" "pendulum")
+ENVS=(lunar_lander ant hopper walker pendulum)
 MAX_EPS=(10000 10000 10000 10000 2000)
-AGENTS=("td3" "sac")
-SEEDS=(42 43 44 45 46 47 48 49 50 51)  # 10 seeds
+AGENTS=(td3 sac)
+SEEDS=(420 421 422 423 424 425 426 427 428 429)  # 10 seeds
 
 # Save frequencies
 SAVE_FREQ=1000
@@ -21,7 +21,7 @@ mkdir -p "$LOG_DIR"
 LOG_FILE="${LOG_DIR}/ablation.log"
 
 # Progress tracking
-TOTAL_RUNS=$((${#ENVS[@]} * ${#AGENTS[@]} * ${#SEEDS[@]}))
+TOTAL_RUNS=$((${#ENVS[@]} * ${#AGENTS[@]} * ${#SEEDS[@]} * 2))  # *2 for double_q true/false
 CURRENT_RUN=0
 
 log() {
@@ -29,29 +29,31 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $message" | tee -a "$LOG_FILE"
 }
 
-# Function to run evaluation
-run_eval() {
+# Function to run training
+run_training() {
     local env=$1
     local agent=$2
     local seed=$3
     local max_eps=$4
-    
+    local use_double_q=$5
+
     CURRENT_RUN=$((CURRENT_RUN + 1))
-    log "Progress: ${CURRENT_RUN}/${TOTAL_RUNS} - Running: env=$env, agent=$agent, seed=$seed, max_eps=$max_eps"
+    log "Progress: ${CURRENT_RUN}/${TOTAL_RUNS} - Running: env=$env, agent=$agent, seed=$seed, max_eps=$max_eps, use_double_q=$use_double_q"
     
-    # Run training with evaluation
-    if ! ./scripts/eval.sh \
+    # Run training
+    if ! uv run main.py \
+        --config-name cdq_ablation \
         env=$env \
         env.max_episodes=$max_eps \
         agent=$agent \
         seed=$seed \
-        agent.use_double_q=false \
+        agent.use_double_q=$use_double_q \
         save.metrics_freq=$SAVE_FREQ \
         save.model_freq=$SAVE_FREQ \
-        2>&1 | tee -a "${LOG_DIR}/${env}_${agent}_${seed}.log"; then
+        2>&1 | tee -a "${LOG_DIR}/${env}_${agent}_${seed}_double_q_${use_double_q}.log"; then
         
-        log "ERROR: Failed run with env=$env agent=$agent seed=$seed"
-        echo "$env,$agent,$seed" >> "${LOG_DIR}/failed_runs.txt"
+        log "ERROR: Failed run with env=$env agent=$agent seed=$seed use_double_q=$use_double_q"
+        echo "$env,$agent,$seed,$use_double_q" >> "${LOG_DIR}/failed_runs.txt"
         return 1
     fi
 }
@@ -74,10 +76,12 @@ for i in "${!ENVS[@]}"; do
     max_eps=${MAX_EPS[$i]}
     for seed in "${SEEDS[@]}"; do
         for agent in "${AGENTS[@]}"; do
-            if ! run_eval "$env" "$agent" "$seed" "$max_eps"; then
-                log "WARNING: Run failed but continuing with next experiment"
-                continue
-            fi
+            for use_double_q in false true; do
+                if ! run_training "$env" "$agent" "$seed" "$max_eps" "$use_double_q"; then
+                    log "WARNING: Run failed but continuing with next experiment"
+                    continue
+                fi
+            done
         done
     done
 done

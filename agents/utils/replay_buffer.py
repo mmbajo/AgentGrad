@@ -1,16 +1,17 @@
-from typing import Dict, Any, Tuple
+from typing import Tuple
 import torch
 import numpy as np
 from numpy.typing import NDArray
+from omegaconf import DictConfig
 
 
 class ReplayBuffer:
-    def __init__(self, config: Dict[str, Any]) -> None:
+    def __init__(self, config: DictConfig) -> None:
         self.config = config
-        self.buffer_size = config["buffer_size"]
-        self.device = config["device"]
-        self.state_dim = config["state_dim"]
-        self.action_dim = config["action_dim"]
+        self.buffer_size = config.buffer_size
+        self.device = config.device
+        self.state_dim = config.state_dim
+        self.action_dim = config.action_dim
 
         self.state_buffer = torch.zeros((self.buffer_size, self.state_dim))
         self.action_buffer = torch.zeros((self.buffer_size, self.action_dim))

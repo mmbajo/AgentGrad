@@ -2,6 +2,18 @@
 
 A modular reinforcement learning framework for continuous control tasks.
 
+## TODO
+- [ ] Add VPG Agent
+- [ ] Add SAC Agent
+- [ ] Add DDPG Agent
+- [ ] Add TD3 Agent
+- [ ] Add PPO Agent
+- [ ] Add DQN Agent
+- [ ] Init JAX environment
+- [ ] TD3 in JAX
+- [ ] PPO in JAX
+- [ ] DQN in JAX
+
 ## Installation
 
 First, install system dependencies:

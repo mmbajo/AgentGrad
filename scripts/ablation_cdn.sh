@@ -4,13 +4,16 @@
 set -e
 
 # List of environments (excluding humanoid)
-ENVS=(lunar_lander ant hopper walker pendulum)
-MAX_EPS=(10000 10000 10000 10000 2000)
+ENVS=(hopper walker pendulum)
+MAX_EPS=(10000 10000 2000)
 AGENTS=(td3 sac)
-SEEDS=(420 421 422 423 424 425 426 427 428 429)  # 10 seeds
+SEEDS=(0 1 2 3 4)  # 10 seeds
 
 # Save frequencies
 SAVE_FREQ=1000
+
+# Maximum number of parallel processes
+MAX_PARALLEL=3
 
 # Create logs directory
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
@@ -58,8 +61,30 @@ run_training() {
     fi
 }
 
+# Function to wait for available slot
+wait_for_slot() {
+    while [ $(jobs -r | wc -l) -ge $MAX_PARALLEL ]; do
+        sleep 1
+    done
+}
+
+# Function to run training in background
+run_training_parallel() {
+    local env=$1
+    local agent=$2
+    local seed=$3
+    local max_eps=$4
+    local use_double_q=$5
+    
+    # Wait for available slot
+    wait_for_slot
+    
+    # Run training in background
+    run_training "$env" "$agent" "$seed" "$max_eps" "$use_double_q" &
+}
+
 # Print experiment info
-log "Starting ablation study"
+log "Starting ablation study with $MAX_PARALLEL parallel processes"
 log "Total runs: $TOTAL_RUNS"
 log "Environments: ${ENVS[*]}"
 log "Agents: ${AGENTS[*]}"
@@ -77,14 +102,15 @@ for i in "${!ENVS[@]}"; do
     for seed in "${SEEDS[@]}"; do
         for agent in "${AGENTS[@]}"; do
             for use_double_q in false true; do
-                if ! run_training "$env" "$agent" "$seed" "$max_eps" "$use_double_q"; then
-                    log "WARNING: Run failed but continuing with next experiment"
-                    continue
-                fi
+                run_training_parallel "$env" "$agent" "$seed" "$max_eps" "$use_double_q"
             done
         done
     done
 done
+
+# Wait for all remaining jobs to complete
+log "Waiting for remaining jobs to complete..."
+wait
 
 # Calculate and log duration
 END_TIME=$(date +%s)
